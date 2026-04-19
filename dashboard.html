@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Token Monitor</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --surface: #161618;
+    --border: #2a2a2e;
+    --accent: #cc785c;
+    --accent2: #7c6af7;
+    --green: #3fb950;
+    --red: #f85149;
+    --text: #e6e6e6;
+    --muted: #8b8b8b;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+  header { padding: 20px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  #status { font-size: 12px; color: var(--muted); }
+  #status.live { color: var(--green); }
+
+  .main { padding: 24px 28px; }
+
+  /* Summary cards */
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .card-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 700; line-height: 1; }
+  .card-value.cost { color: var(--accent); }
+  .plan-note { font-size: 9px; background: rgba(204,120,92,.15); color: var(--accent); padding: 1px 5px; border-radius: 3px; vertical-align: middle; margin-left: 4px; }
+  .cache-good { color: var(--green); }
+  .cache-mid { color: #e3b341; }
+  .cache-bad { color: var(--red); }
+  .card-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* Section */
+  .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 14px; }
+
+  /* Table */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); text-align: left; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.02); user-select: none; }
+  thead th.sortable { cursor: pointer; }
+  thead th.sortable:hover { color: var(--text); background: rgba(255,255,255,.05); }
+  thead th.sort-asc, thead th.sort-desc { color: var(--text); }
+  thead th .sort-icon { margin-left: 4px; opacity: .4; font-style: normal; }
+  thead th.sort-asc .sort-icon, thead th.sort-desc .sort-icon { opacity: 1; color: var(--accent2); }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; cursor: default; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,.04); }
+  tbody td { padding: 12px 16px; vertical-align: middle; }
+
+  .project-name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .active-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; box-shadow: 0 0 6px var(--green); }
+  .inactive-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+
+  .cost-cell { font-weight: 700; color: var(--accent); }
+  .ls-cell { line-height: 1.4; }
+  .ls-tokens { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ls-meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ls-sub { font-size: 10px; color: var(--accent2); margin-left: 4px; }
+  .model-badge { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: rgba(124,106,247,.15); color: var(--accent2); font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .bar-cell { width: 120px; }
+  .bar-bg { background: rgba(255,255,255,.06); border-radius: 3px; height: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; background: var(--accent2); transition: width .4s ease; }
+
+  /* Sparkline / chart */
+  .chart-section { margin-bottom: 28px; }
+  .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  #timeline-chart { width: 100%; height: 160px; }
+
+  /* Refresh + Filter */
+  .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+  .refresh-row { display: flex; align-items: center; gap: 10px; }
+  .filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; transition: all .12s; }
+  .btn:hover { background: rgba(255,255,255,.07); }
+  .btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .countdown { font-size: 12px; color: var(--muted); }
+  .date-range { display: none; align-items: center; gap: 6px; }
+  .date-range.visible { display: flex; }
+  .date-range input[type=date] {
+    padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 12px;
+    cursor: pointer; outline: none;
+    color-scheme: dark;
+  }
+  .date-range input[type=date]:focus { border-color: var(--accent2); }
+  .date-sep { font-size: 12px; color: var(--muted); }
+
+  /* Last activity */
+  .ago { font-size: 11px; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .bar-cell { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <h1>Claude Token Monitor</h1>
+  </div>
+  <span id="status">Caricamento…</span>
+</header>
+
+<div class="main">
+
+  <div class="top-bar">
+    <div class="filter-bar">
+      <button class="btn" id="f-all"    onclick="setFilter('all')">Tutto</button>
+      <button class="btn" id="f-today"  onclick="setFilter('today')">Oggi</button>
+      <button class="btn" id="f-week"   onclick="setFilter('week')">7 giorni</button>
+      <button class="btn" id="f-custom" onclick="setFilter('custom')">Da › A</button>
+      <div class="date-range" id="custom-range">
+        <input type="date" id="date-from" onchange="applyCustomRange()">
+        <span class="date-sep">→</span>
+        <input type="date" id="date-to" onchange="applyCustomRange()">
+      </div>
+    </div>
+    <div class="refresh-row">
+      <button class="btn" onclick="loadData()">↻ Aggiorna</button>
+      <span class="countdown" id="countdown">prossimo aggiornamento in 30s</span>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary" id="summary">
+    <div class="card"><div class="card-label">Valore API equiv. <span class="plan-note">≠ costo Max</span></div><div class="card-value cost" id="s-cost">—</div><div class="card-sub">se pagato a consumo</div></div>
+    <div class="card"><div class="card-label">Token Totali</div><div class="card-value" id="s-tokens">—</div><div class="card-sub" id="s-projects">—</div></div>
+    <div class="card"><div class="card-label">Cache Hit Globale</div><div class="card-value" id="s-cache">—</div><div class="card-sub">% contesto dalla cache</div></div>
+    <div class="card"><div class="card-label">Output Ratio</div><div class="card-value" id="s-outratio">—</div><div class="card-sub">output / input totale</div></div>
+  </div>
+
+  <!-- Timeline chart -->
+  <div class="chart-section">
+    <div class="section-title">Attività ultime 48h (per ora)</div>
+    <div class="chart-wrap">
+      <canvas id="timeline-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Projects table -->
+  <div class="section-title">Tutti i progetti</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="sortable" data-key="project" data-type="str">Progetto<i class="sort-icon">⇅</i></th>
+          <th class="sortable" data-key="model" data-type="str">Modello<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="sessions" data-type="num">Sessioni<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="total_input" data-type="num">Input<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="total_output" data-type="num">Output<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="cache_hit_pct" data-type="num">Cache Hit %<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="total_tokens" data-type="num">Totale token<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="api_equiv_eur" data-type="num" title="Costo equivalente API — NON è il costo reale sul piano Max">API Equiv.<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="avg_input_per_turn" data-type="num" title="Input medio per turno di conversazione">Inp/Turn<i class="sort-icon">⇅</i></th>
+          <th class="sortable num" data-key="ls_tokens" data-type="num" title="Token totali dell'ultima sessione (inclusi subagents)">Ultima sessione<i class="sort-icon">⇅</i></th>
+          <th class="bar-cell"></th>
+          <th class="sortable" data-key="last_activity" data-type="str">Ultima attività<i class="sort-icon">⇅</i></th>
+        </tr>
+      </thead>
+      <tbody id="projects-tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const API = '/api/data';
+let countdown = 30;
+let timer;
+let maxCost = 0;
+let allProjects = [];
+let sortKey = 'last_activity';
+let sortDir = 'desc';
+let activeFilter = 'all';
+let customFrom = null;
+let customTo = null;
+
+function toLocalISODate(d) {
+  // yyyy-mm-dd in local time
+  return d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
+}
+
+function buildApiUrl() {
+  const now = new Date();
+  let from = null, to = null;
+  if (activeFilter === 'today') {
+    from = toLocalISODate(now) + 'T00:00:00';
+    to   = now.toISOString();
+  } else if (activeFilter === 'week') {
+    const d = new Date(now); d.setDate(d.getDate() - 7);
+    from = d.toISOString();
+    to   = now.toISOString();
+  } else if (activeFilter === 'custom' && customFrom) {
+    from = customFrom + 'T00:00:00';
+    to   = customTo ? customTo + 'T23:59:59' : now.toISOString();
+  }
+  if (!from) return API;
+  return `${API}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+}
+
+function setFilter(f) {
+  activeFilter = f;
+  // Aggiorna bottoni
+  ['all','today','week','custom'].forEach(k => {
+    document.getElementById('f-'+k).classList.toggle('active', k === f);
+  });
+  // Mostra/nascondi date picker
+  document.getElementById('custom-range').classList.toggle('visible', f === 'custom');
+  if (f !== 'custom') loadData();
+}
+
+function applyCustomRange() {
+  customFrom = document.getElementById('date-from').value;
+  customTo   = document.getElementById('date-to').value;
+  if (customFrom) loadData();
+}
+
+function fmt(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return (n/1e9).toFixed(2)+'B';
+  if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
+  if (n >= 1e3) return (n/1e3).toFixed(0)+'k';
+  return String(n);
+}
+
+function fmtEur(n) {
+  if (n == null) return '—';
+  return '€' + parseFloat(n).toFixed(2);
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  const diff = Math.floor((Date.now() - d) / 1000);
+  if (diff < 60) return diff + 's fa';
+  if (diff < 3600) return Math.floor(diff/60) + 'm fa';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h fa';
+  return Math.floor(diff/86400) + 'g fa';
+}
+
+function shortModel(m) {
+  if (!m || m === 'unknown') return '';
+  if (m.includes('opus')) return 'Opus';
+  if (m.includes('sonnet')) return 'Sonnet';
+  if (m.includes('haiku')) return 'Haiku';
+  return m.split('-').pop();
+}
+
+function buildLsCell(p) {
+  if (!p.ls_tokens) return '<span style="color:var(--muted)">—</span>';
+  const subBadge = p.ls_subagents > 0
+    ? `<span class="ls-sub">+${p.ls_subagents} sub</span>`
+    : '';
+  const cost = p.ls_cost_eur ? ` · €${parseFloat(p.ls_cost_eur).toFixed(2)}` : '';
+  return `<div class="ls-tokens">${fmt(p.ls_tokens)}${subBadge}</div>
+          <div class="ls-meta">${fmt(p.ls_input)} in · ${fmt(p.ls_output)} out${cost}</div>`;
+}
+
+function sortProjects(projects, key, dir) {
+  return [...projects].sort((a, b) => {
+    let va = a[key], vb = b[key];
+    if (va == null) va = dir === 'asc' ? Infinity : -Infinity;
+    if (vb == null) vb = dir === 'asc' ? Infinity : -Infinity;
+    const na = parseFloat(va), nb = parseFloat(vb);
+    if (!isNaN(na) && !isNaN(nb)) return dir === 'asc' ? na - nb : nb - na;
+    return dir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll('thead th.sortable').forEach(th => {
+    const k = th.dataset.key;
+    th.classList.remove('sort-asc', 'sort-desc');
+    const icon = th.querySelector('.sort-icon');
+    if (k === sortKey) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      icon.textContent = sortDir === 'asc' ? '↑' : '↓';
+    } else {
+      icon.textContent = '⇅';
+    }
+  });
+}
+
+function cacheClass(pct) {
+  if (pct === null || pct === undefined) return '';
+  const n = parseFloat(pct);
+  if (n >= 60) return 'cache-good';
+  if (n >= 30) return 'cache-mid';
+  return 'cache-bad';
+}
+
+function renderProjects(projects) {
+  allProjects = projects;
+  const sorted = sortProjects(projects, sortKey, sortDir);
+  maxCost = Math.max(...projects.map(p => parseFloat(p.api_equiv_eur || 0)));
+  const tbody = document.getElementById('projects-tbody');
+  tbody.innerHTML = sorted.map(p => {
+    const barPct = maxCost > 0 ? (parseFloat(p.api_equiv_eur||0)/maxCost*100).toFixed(1) : 0;
+    const dot = p.is_active
+      ? '<span class="active-dot" title="Attivo ora"></span>'
+      : '<span class="inactive-dot"></span>';
+    const model = shortModel(p.model);
+    const badge = model ? `<span class="model-badge">${model}</span>` : '';
+    const cacheVal = p.cache_hit_pct != null ? parseFloat(p.cache_hit_pct).toFixed(1) + '%' : '—';
+    const cacheCls = cacheClass(p.cache_hit_pct);
+    const avgInp = p.avg_input_per_turn ? fmt(p.avg_input_per_turn) : '—';
+    const lsCell = buildLsCell(p);
+    return `<tr>
+      <td class="project-name">${dot}${escHtml(p.project)}</td>
+      <td>${badge}</td>
+      <td class="num">${p.sessions || 0}</td>
+      <td class="num">${fmt(p.total_input)}</td>
+      <td class="num">${fmt(p.total_output)}</td>
+      <td class="num ${cacheCls}">${cacheVal}</td>
+      <td class="num">${fmt(p.total_tokens)}</td>
+      <td class="cost-cell num" title="Equivalente API — non è il costo reale sul piano Max">${fmtEur(p.api_equiv_eur)}</td>
+      <td class="num" style="color:var(--muted)">${avgInp}</td>
+      <td class="ls-cell">${lsCell}</td>
+      <td class="bar-cell"><div class="bar-bg"><div class="bar-fill" style="width:${barPct}%"></div></div></td>
+      <td class="ago">${timeAgo(p.last_activity)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSummary(s) {
+  document.getElementById('s-cost').textContent = fmtEur(s.grand_api_equiv_eur);
+  document.getElementById('s-tokens').textContent = fmt(s.grand_total_tokens);
+  document.getElementById('s-projects').textContent = s.total_projects + ' proj · ' + s.total_sessions + ' sess';
+  const cachePct = parseFloat(s.global_cache_hit_pct || 0);
+  const cacheEl = document.getElementById('s-cache');
+  cacheEl.textContent = cachePct.toFixed(1) + '%';
+  cacheEl.className = 'card-value ' + cacheClass(cachePct);
+  const outRatio = parseFloat(s.output_ratio_pct || 0);
+  document.getElementById('s-outratio').textContent = outRatio.toFixed(1) + '%';
+}
+
+function renderChart(hourly) {
+  const canvas = document.getElementById('timeline-chart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  canvas.width = W;
+  canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!hourly || !hourly.length) return;
+
+  // Aggrega tutti i progetti per ora
+  const byHour = {};
+  hourly.forEach(h => {
+    const k = h.hour;
+    if (!byHour[k]) byHour[k] = 0;
+    byHour[k] += parseFloat(h.cost_eur || 0);
+  });
+
+  const keys = Object.keys(byHour).sort().slice(-48); // ultime 48 ore
+  if (!keys.length) return;
+  const vals = keys.map(k => byHour[k]);
+  const maxV = Math.max(...vals, 0.001);
+  const pad = { l: 8, r: 8, t: 8, b: 20 };
+  const barW = Math.max(2, (W - pad.l - pad.r) / keys.length - 2);
+
+  // Bars
+  keys.forEach((k, i) => {
+    const x = pad.l + i * ((W - pad.l - pad.r) / keys.length);
+    const barH = ((vals[i] / maxV) * (H - pad.t - pad.b));
+    const y = H - pad.b - barH;
+    const isRecent = i >= keys.length - 2;
+    ctx.fillStyle = isRecent ? '#cc785c' : '#7c6af7';
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(x, y, barW, barH);
+  });
+  ctx.globalAlpha = 1;
+
+  // Axis labels (solo ogni 6 ore)
+  ctx.fillStyle = '#5a5a5a';
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  keys.forEach((k, i) => {
+    if (i % 6 !== 0) return;
+    const x = pad.l + i * ((W - pad.l - pad.r) / keys.length) + barW/2;
+    const d = new Date(k);
+    const label = d.getHours().toString().padStart(2,'0') + ':00';
+    ctx.fillText(label, x, H - 4);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadData() {
+  const status = document.getElementById('status');
+  try {
+    const res = await fetch(buildApiUrl());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    renderSummary(data.summary);
+    renderProjects(data.projects);
+    renderChart(data.hourly);
+
+    status.textContent = '● Live';
+    status.className = 'live';
+    resetCountdown();
+  } catch(e) {
+    status.textContent = '⚠ Errore: ' + e.message;
+    status.className = '';
+  }
+}
+
+function resetCountdown() {
+  countdown = 30;
+  clearInterval(timer);
+  timer = setInterval(() => {
+    countdown--;
+    document.getElementById('countdown').textContent = `prossimo aggiornamento in ${countdown}s`;
+    if (countdown <= 0) {
+      loadData();
+    }
+  }, 1000);
+}
+
+// Sort on header click
+document.querySelectorAll('thead th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortKey = key;
+      sortDir = key === 'project' || key === 'model' || key === 'last_activity' ? 'asc' : 'desc';
+    }
+    updateSortHeaders();
+    // Re-render senza refetch
+    const sorted = sortProjects(allProjects, sortKey, sortDir);
+    maxCost = Math.max(...allProjects.map(p => parseFloat(p.api_equiv_eur || 0)));
+    const tbody = document.getElementById('projects-tbody');
+    tbody.innerHTML = sorted.map(p => {
+      const barPct = maxCost > 0 ? (parseFloat(p.api_equiv_eur||0)/maxCost*100).toFixed(1) : 0;
+      const dot = p.is_active ? '<span class="active-dot"></span>' : '<span class="inactive-dot"></span>';
+      const model = shortModel(p.model);
+      const badge = model ? `<span class="model-badge">${model}</span>` : '';
+      const cacheVal = p.cache_hit_pct != null ? parseFloat(p.cache_hit_pct).toFixed(1) + '%' : '—';
+      const cacheCls = cacheClass(p.cache_hit_pct);
+      const avgInp = p.avg_input_per_turn ? fmt(p.avg_input_per_turn) : '—';
+      const lsCell = buildLsCell(p);
+      return `<tr>
+        <td class="project-name">${dot}${escHtml(p.project)}</td>
+        <td>${badge}</td>
+        <td class="num">${p.sessions || 0}</td>
+        <td class="num">${fmt(p.total_input)}</td>
+        <td class="num">${fmt(p.total_output)}</td>
+        <td class="num ${cacheCls}">${cacheVal}</td>
+        <td class="num">${fmt(p.total_tokens)}</td>
+        <td class="cost-cell num">${fmtEur(p.api_equiv_eur)}</td>
+        <td class="num" style="color:var(--muted)">${avgInp}</td>
+        <td class="ls-cell">${lsCell}</td>
+        <td class="bar-cell"><div class="bar-bg"><div class="bar-fill" style="width:${barPct}%"></div></div></td>
+        <td class="ago">${timeAgo(p.last_activity)}</td>
+      </tr>`;
+    }).join('');
+  });
+});
+
+// Resize chart on window resize
+window.addEventListener('resize', () => {
+  loadData();
+});
+
+// Init date picker defaults
+(function() {
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+  document.getElementById('date-from').value = toLocalISODate(weekAgo);
+  document.getElementById('date-to').value   = toLocalISODate(now);
+  customFrom = toLocalISODate(weekAgo);
+  customTo   = toLocalISODate(now);
+})();
+
+document.getElementById('f-all').classList.add('active');
+updateSortHeaders();
+loadData();
+</script>
+</body>
+</html>
