@@ -139,6 +139,24 @@ rm -rf ~/.claude-token-guard    # remove the SQLite DB
 
 ---
 
+## Contributing
+
+Contributions are welcome! Here are the best places to start:
+
+- **New diagnosis rules** — add a rule to `analyzer.py` following the existing pattern (`RULES` list, check lambda, detail template). Each rule needs a severity (1–4) and a static suggestion in `dashboard.html` (`STATIC_SUGGESTIONS` object).
+- **New visualizations** — the dashboard is a single self-contained `dashboard.html` file. No build step needed.
+- **Postgres improvements** — the SQLite path is battle-tested; the Postgres path could use more real-world testing.
+- **Bug reports** — open a GitHub Issue with your Python version, OS, and the error output.
+
+```
+analyzer.py     ← add new diagnosis rules here
+dashboard.html  ← add suggestions for new rules here (STATIC_SUGGESTIONS object)
+```
+
+PRs are reviewed within a few days. Keep changes focused — one feature or fix per PR.
+
+---
+
 ## Privacy
 
 - All data stays local (SQLite file on your machine)
