@@ -302,11 +302,6 @@
 </div>
 
 <!-- Alert bar — visible on both tabs -->
-<div class="alert-bar" id="alert-bar">
-  <span class="alert-bar-label" id="alert-bar-label">⚠ Problemi:</span>
-  <div class="alert-chips" id="alert-chips"></div>
-  <button class="btn-dismiss" onclick="dismissAlerts()">✕ Ignora</button>
-</div>
 
 <div class="main">
 
@@ -533,7 +528,7 @@ function saveThreshold() {
 // Alert system
 // ═══════════════════════════════════════
 async function checkAlerts() {
-  if (alertThreshold === 0) { hideAlertBar(); return; }
+  if (alertThreshold === 0) return;
   try {
     const res = await fetch('/api/alerts'); if (!res.ok) return;
     const data = await res.json();
@@ -549,43 +544,7 @@ async function checkAlerts() {
       lastAlertCheck = Date.now();
       localStorage.setItem('tg_last_alert_check', lastAlertCheck);
     }
-
-    if (relevant.length > 0) showAlertBar(relevant);
-    else hideAlertBar();
   } catch(e) { /* silent */ }
-}
-
-function showAlertBar(alerts) {
-  const bar = document.getElementById('alert-bar');
-  const maxSev = Math.max(...alerts.map(a => a.max_severity));
-  bar.className = 'alert-bar visible' + (maxSev >= 4 ? ' sev4' : '');
-
-  document.getElementById('alert-bar-label').textContent =
-    maxSev >= 4 ? '🔴 Critico:' : maxSev === 3 ? '🚨 Alert:' : '⚠ Problemi:';
-
-  // Deduplicate by project, take max severity
-  const projMap = {};
-  for (const a of alerts) {
-    if (!projMap[a.project] || a.max_severity > projMap[a.project]) projMap[a.project] = a.max_severity;
-  }
-  const sorted = Object.entries(projMap).sort((a,b) => b[1]-a[1]);
-  worstAlertProject = sorted[0]?.[0] || null;
-
-  const chips = sorted.slice(0,6).map(([proj, sev]) =>
-    `<button class="proj-chip sev${sev}" onclick="openProject('${escHtml(proj)}')" title="Apri analisi">
-      ${escHtml(proj)} <span class="chip-sev">L${sev}</span>
-    </button>`
-  ).join('');
-  const more = sorted.length > 6 ? `<span class="chip-more">+${sorted.length-6} altri</span>` : '';
-  document.getElementById('alert-chips').innerHTML = chips + more;
-}
-
-function hideAlertBar() { document.getElementById('alert-bar').classList.remove('visible'); }
-
-function dismissAlerts() {
-  lastAlertCheck = Date.now();
-  localStorage.setItem('tg_last_alert_check', lastAlertCheck);
-  hideAlertBar(); updateAlertBadge(0); activeAlerts = [];
 }
 
 function updateAlertBadge(n) {
