@@ -3,4 +3,12 @@ server.log
 __pycache__/
 *.pyc
 .env
+.env.*
+
+# File interni / note di sviluppo
+claude.md
+
+# Directory temporanee
+.tmp/
+*.db
 

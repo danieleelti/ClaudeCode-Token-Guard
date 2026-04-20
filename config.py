@@ -28,4 +28,4 @@ CLAUDE_PROJECTS_DIR = os.path.expanduser(
 )
 
 # ── Dashboard ─────────────────────────────────────────────────────────────
-SERVER_PORT = int(os.getenv("TOKEN_PORT", "4001"))
+SERVER_PORT = int(os.getenv("TOKEN_PORT", "4002"))

@@ -6,11 +6,18 @@ Serve la dashboard su http://localhost:PORT
 import json
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
 
 import db
 from config import SERVER_PORT, DB_TYPE
+
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Non-blocking server — each request runs in its own thread.
+    Required for the /api/ask-opus endpoint which can take 10-30s."""
+    daemon_threads = True
 
 DASHBOARD_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
 
@@ -199,6 +206,57 @@ def get_data(from_dt=None, to_dt=None):
     return {"projects": projects, "hourly": hourly, "summary": summary,
             "generated_at": datetime.now(timezone.utc).isoformat()}
 
+
+def get_analysis(project):
+    """Qualitative analysis for a single project — all sessions + aggregate."""
+    conn = db.get_conn()
+    sessions = db.get_project_analysis(conn, project)
+    conn.close()
+
+    if not sessions:
+        return {"project": project, "sessions": [], "aggregate": {"session_count": 0}}
+
+    def _avg(key):
+        vals = [s[key] for s in sessions if s.get(key) is not None]
+        return round(sum(vals) / len(vals), 3) if vals else 0
+
+    # Aggregate flag counts across sessions
+    flag_counts = {}
+    for s in sessions:
+        for d in s.get("diagnosis", []):
+            fid = d["id"]
+            if fid not in flag_counts:
+                flag_counts[fid] = {
+                    "id": fid, "label": d["label"],
+                    "severity": d["severity"], "count": 0,
+                }
+            flag_counts[fid]["count"] += 1
+
+    aggregate = {
+        "session_count":              len(sessions),
+        "avg_turn_count":             _avg("turn_count"),
+        "avg_tool_calls_per_turn":    _avg("avg_tool_calls_per_turn"),
+        "avg_context_initial_tokens": _avg("context_initial_tokens"),
+        "avg_context_growth_rate":    _avg("context_growth_rate"),
+        "avg_cache_read_ratio":       _avg("cache_read_ratio"),
+        "avg_exploration_ratio":      _avg("exploration_ratio"),
+        "avg_delegation_ratio":       _avg("delegation_ratio"),
+        "avg_output_efficiency":      _avg("output_efficiency"),
+        "max_severity":               max((s.get("max_severity", 0) for s in sessions), default=0),
+        "flag_counts":                sorted(flag_counts.values(),
+                                            key=lambda x: (-x["severity"], -x["count"])),
+    }
+
+    return {"project": project, "sessions": sessions, "aggregate": aggregate}
+
+
+def get_alerts():
+    """All sessions with at least one diagnosis flag, for dashboard polling."""
+    conn = db.get_conn()
+    alerts = db.get_all_alerts(conn, min_severity=1)
+    conn.close()
+    return {"alerts": alerts}
+
 # ── HTTP Handler ──────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -230,6 +288,67 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode())
 
+        elif parsed.path == "/api/analysis":
+            project = qs.get("project", [None])[0]
+            try:
+                if not project:
+                    raise ValueError("project param required")
+                body = json.dumps(get_analysis(project)).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self.send_response(400 if "required" in str(e) else 500)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+        elif parsed.path == "/api/alerts":
+            try:
+                body = json.dumps(get_alerts()).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+        elif parsed.path == "/api/ask-opus":
+            project = qs.get("project", [None])[0]
+            try:
+                if not project:
+                    raise ValueError("project param required")
+                import claude_advisor
+                analysis = get_analysis(project)
+                if not analysis["sessions"]:
+                    raise ValueError(f"Nessuna analisi disponibile per '{project}'. Attendi il prossimo ciclo del collector.")
+                result = claude_advisor.ask_opus(
+                    project,
+                    analysis["aggregate"],
+                    analysis["sessions"],
+                )
+                body = json.dumps(result).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                code = 400 if ("required" in str(e) or "Nessuna" in str(e)) else 500
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e), "text": None}).encode())
+
         elif parsed.path in ("/", "/index.html"):
             try:
                 body = open(DASHBOARD_HTML, "rb").read()
@@ -250,4 +369,4 @@ if __name__ == "__main__":
     db.ensure_schema(conn)
     conn.close()
     print(f"[{datetime.now():%H:%M:%S}] Token Guard → http://localhost:{SERVER_PORT}")
-    HTTPServer(("0.0.0.0", SERVER_PORT), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", SERVER_PORT), Handler).serve_forever()

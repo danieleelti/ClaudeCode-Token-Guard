@@ -10,6 +10,7 @@ import glob
 from datetime import datetime, timezone
 
 import db
+import analyzer
 from config import CLAUDE_PROJECTS_DIR
 
 # Prezzi Claude (USD/token) × 0.92 EUR/USD
@@ -103,6 +104,12 @@ def process_project(project_dir, conn):
         if n:
             print(f"  {project}/{session_id[:8]}… +{n}")
         total += n
+
+        # Qualitative analysis: run if new events or no analysis yet
+        if n > 0 or not db.analysis_exists(conn, session_id):
+            metrics = analyzer.analyze_session(jsonl)
+            if metrics:
+                db.upsert_analysis(conn, session_id, project, metrics)
 
         # Subagent di questa sessione
         for sub in glob.glob(os.path.join(project_dir, session_id, "subagents", "*.jsonl")):
