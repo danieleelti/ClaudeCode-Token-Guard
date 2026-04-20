@@ -213,6 +213,26 @@
   .opus-error { padding: 12px; background: var(--sev4-bg); border: 1px solid var(--sev4-border); border-radius: 7px; color: var(--red); font-size: 12px; }
   hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 
+  /* ── Score trend chart ── */
+  .score-chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px 12px; margin-bottom: 14px; }
+  .score-chart-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .score-chart-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .score-current { font-size: 28px; font-weight: 700; }
+  .score-current.good { color: var(--green); }
+  .score-current.mid  { color: var(--sev2); }
+  .score-current.bad  { color: var(--sev3); }
+  .score-trend-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+  .score-trend-badge.up   { background: rgba(52,199,89,.15); color: var(--green); }
+  .score-trend-badge.down { background: rgba(255,80,80,.15); color: var(--sev3); }
+  .score-trend-badge.flat { background: rgba(255,255,255,.07); color: var(--muted); }
+  .score-svg { width: 100%; height: 70px; display: block; overflow: visible; }
+
+  /* ── Doing well ── */
+  .doing-well-wrap { background: rgba(52,199,89,.07); border: 1px solid rgba(52,199,89,.2); border-radius: 12px; padding: 14px 18px; margin-bottom: 14px; }
+  .doing-well-title { font-size: 11px; font-weight: 600; color: var(--green); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+  .doing-well-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .doing-well-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: rgba(52,199,89,.15); color: var(--green); border: 1px solid rgba(52,199,89,.25); }
+
   /* ── Session cards ── */
   .sessions-list { display: flex; flex-direction: column; gap: 8px; }
   .session-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color .15s; }
@@ -634,8 +654,60 @@ function sevClass(s) { return 'sev' + Math.min(4, Math.max(1, s||0)); }
 function fmtPct(v) { return v==null?'—': (parseFloat(v)*100).toFixed(0)+'%'; }
 function fmtK(v) { if(v==null)return'—'; const n=parseFloat(v); return n>=1000?(n/1000).toFixed(1)+'k':n.toFixed(0); }
 
+function renderScoreChart(scoreSeries) {
+  if (!scoreSeries || scoreSeries.length < 2) return '';
+  const scores = scoreSeries.map(p => p.score);
+  const n = scores.length;
+  const last = scores[n - 1];
+  const prev = scores[n - 2];
+  const delta = last - prev;
+  const trendLabel = delta > 2 ? `↑ +${delta}` : delta < -2 ? `↓ ${delta}` : '→ stabile';
+  const trendClass = delta > 2 ? 'up' : delta < -2 ? 'down' : 'flat';
+  const scoreClass = last >= 70 ? 'good' : last >= 40 ? 'mid' : 'bad';
+
+  // SVG polyline — viewBox 0 0 W 60
+  const W = 600, H = 60, PAD = 6;
+  const xStep = (W - PAD * 2) / (n - 1);
+  const toX = i => PAD + i * xStep;
+  const toY = v => H - PAD - ((v / 100) * (H - PAD * 2));
+  const pts = scores.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+  // fill gradient area
+  const fillPts = `${toX(0).toFixed(1)},${H} ` + pts + ` ${toX(n-1).toFixed(1)},${H}`;
+  const lineColor = delta > 2 ? '#34c759' : delta < -2 ? '#ff5050' : '#7c6af7';
+  const fillColor = delta > 2 ? 'rgba(52,199,89,.12)' : delta < -2 ? 'rgba(255,80,80,.08)' : 'rgba(124,106,247,.1)';
+
+  // dots only at first and last
+  const dotFirst = `<circle cx="${toX(0).toFixed(1)}" cy="${toY(scores[0]).toFixed(1)}" r="3" fill="${lineColor}" opacity=".7"/>`;
+  const dotLast  = `<circle cx="${toX(n-1).toFixed(1)}" cy="${toY(last).toFixed(1)}" r="4" fill="${lineColor}"/>`;
+
+  return `
+    <div class="score-chart-wrap">
+      <div class="score-chart-header">
+        <span class="score-chart-title">Optimization Score</span>
+        <span class="score-current ${scoreClass}">${last}%</span>
+        <span class="score-trend-badge ${trendClass}">${trendLabel}</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto">ultime ${n} sessioni</span>
+      </div>
+      <svg class="score-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <polygon points="${fillPts}" fill="${fillColor}"/>
+        <polyline points="${pts}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${dotFirst}${dotLast}
+      </svg>
+    </div>`;
+}
+
+function renderDoingWell(doingWell) {
+  if (!doingWell || doingWell.length === 0) return '';
+  const chips = doingWell.map(r => `<span class="doing-well-chip">✓ ${escHtml(r.label)}</span>`).join('');
+  return `
+    <div class="doing-well-wrap">
+      <div class="doing-well-title">✦ Cosa stai facendo bene (ultime 5 sessioni)</div>
+      <div class="doing-well-chips">${chips}</div>
+    </div>`;
+}
+
 function renderAnalysis(data) {
-  const { aggregate: agg, sessions } = data;
+  const { aggregate: agg, sessions, score_series, doing_well } = data;
   const container = document.getElementById('analysis-content');
 
   if (!sessions || sessions.length === 0) {
@@ -723,7 +795,10 @@ function renderAnalysis(data) {
   // Sessions
   const cardsHtml = sessions.map(s => renderSessionCard(s)).join('');
 
-  container.innerHTML = aggHtml + sugHtml + opusHtml +
+  const chartHtml    = renderScoreChart(score_series);
+  const doingWellHtml = renderDoingWell(doing_well);
+
+  container.innerHTML = chartHtml + doingWellHtml + aggHtml + sugHtml + opusHtml +
     `<div class="section-title" style="margin-top:4px">Sessioni (${sessions.length})</div>
      <div class="sessions-list">${cardsHtml}</div>`;
 

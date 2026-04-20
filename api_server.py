@@ -207,6 +207,23 @@ def get_data(from_dt=None, to_dt=None):
             "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
+ALL_RULES = [
+    {"id": "HIGH_CONTEXT_STARTUP", "label": "Contesto iniziale contenuto"},
+    {"id": "CONTEXT_BALLOONING",   "label": "Contesto stabile sessione"},
+    {"id": "EXPLORATION_HEAVY",    "label": "Buon equilibrio explore/implement"},
+    {"id": "SUBAGENT_HEAVY",       "label": "Delega subagent ottimale"},
+    {"id": "COMPLEX_QUESTIONS",    "label": "Domande ben strutturate"},
+    {"id": "THINKING_OVERHEAD",    "label": "Thinking overhead sotto controllo"},
+    {"id": "LOW_CACHE_EFFICIENCY", "label": "Cache efficiency ottima"},
+    {"id": "LONG_QUESTIONS",       "label": "Messaggi concisi ed efficaci"},
+]
+
+def _session_score(session):
+    """0-100 optimization score. Start at 100, deduct severity*10 per flag."""
+    deductions = sum(d["severity"] * 10 for d in session.get("diagnosis", []))
+    return max(0, 100 - deductions)
+
+
 def get_analysis(project):
     """Qualitative analysis for a single project — all sessions + aggregate."""
     conn = db.get_conn()
@@ -219,6 +236,25 @@ def get_analysis(project):
     def _avg(key):
         vals = [s[key] for s in sessions if s.get(key) is not None]
         return round(sum(vals) / len(vals), 3) if vals else 0
+
+    # Scores per session (attach to session dicts)
+    for s in sessions:
+        s["score"] = _session_score(s)
+
+    # Score series — chronological, last 30 sessions
+    sorted_sessions = sorted(sessions, key=lambda s: s.get("analyzed_at") or "")
+    score_series = [
+        {"ts": s.get("analyzed_at", ""), "score": s["score"]}
+        for s in sorted_sessions[-30:]
+    ]
+
+    # Doing well — rules NOT triggered in last 5 sessions
+    recent = sorted_sessions[-5:]
+    recent_flags = set()
+    for s in recent:
+        for d in s.get("diagnosis", []):
+            recent_flags.add(d["id"])
+    doing_well = [r for r in ALL_RULES if r["id"] not in recent_flags]
 
     # Aggregate flag counts across sessions
     flag_counts = {}
@@ -247,7 +283,13 @@ def get_analysis(project):
                                             key=lambda x: (-x["severity"], -x["count"])),
     }
 
-    return {"project": project, "sessions": sessions, "aggregate": aggregate}
+    return {
+        "project":      project,
+        "sessions":     sessions,
+        "aggregate":    aggregate,
+        "score_series": score_series,
+        "doing_well":   doing_well,
+    }
 
 
 def get_alerts():
