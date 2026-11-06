@@ -12,3 +12,17 @@ claude.md
 .tmp/
 *.db
 
+
+# segreti e database: mai su git (backup in danieleelti/secrets-vault) — 2026-11-06
+.env*
+!.env.example
+!.env.esempio
+!.env.sample
+!.env.template
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
